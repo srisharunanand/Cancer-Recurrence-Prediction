@@ -18,16 +18,16 @@ def load_artifacts():
     artifact_dir = Path(__file__).resolve().parent
     model = joblib.load(artifact_dir / "cancer_model.pkl")
     scaler = joblib.load(artifact_dir / "scaler.pkl")
-    explainer = joblib.load(artifact_dir / "shap_explainer.pkl")
+    means = joblib.load(artifact_dir / "feature_means.pkl")
     feature_names = joblib.load(artifact_dir / "feature_names.pkl")
 
     if list(model.feature_names_in_) != feature_names:
         raise ValueError("Model features do not match feature_names.pkl.")
 
-    return model, scaler, explainer, feature_names
+    return model, scaler, means, feature_names
 
 
-model, scaler, explainer, feature_names = load_artifacts()
+model, scaler, means, feature_names = load_artifacts()
 
 # Title
 st.title("🏥 Cancer Recurrence Prediction Model")
@@ -166,10 +166,23 @@ if st.button("🔍 Predict Recurrence Risk", width="stretch"):
     )
     # SHAP explanation
     st.subheader("Why this prediction?")
-    shap_explanation = explainer(input_data)
+
+    # SHAP values for a linear model: coefficient x (value - training mean)
+    coef = model.coef_[0]
+    x = input_data[feature_names].to_numpy()[0]
+    shap_vals = coef * (x - means)
+    base_value = float(model.intercept_[0] + coef @ means)
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    shap.waterfall_plot(shap_explanation[0], show=False)
+    shap.waterfall_plot(
+        shap.Explanation(
+            values=shap_vals,
+            base_values=base_value,
+            data=x,
+            feature_names=feature_names,
+        ),
+        show=False,
+    )
     st.pyplot(fig, alt="SHAP waterfall explanation of the prediction")
     plt.close()
 
