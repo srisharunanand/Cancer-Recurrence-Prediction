@@ -160,9 +160,9 @@ if st.button("🔍 Predict Recurrence Risk", width="stretch"):
         else:
             st.success("✅ LOWER RISK: standard follow-up")
 
-    st.caption(
-        "Risk tiers are relative to the METABRIC test cohort (lower / middle / upper third). "
-        "The score is a ranking, not a calibrated probability."
+        st.caption(
+        "In test data, recurrence rates were about 29% (Lower), 36% (Moderate) and 59% (High). "
+        "Tiers rank risk and are not calibrated probabilities. Lower risk does not mean no risk."
     )
     # SHAP explanation
     st.subheader("Why this prediction?")
