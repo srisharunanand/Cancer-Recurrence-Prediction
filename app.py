@@ -11,7 +11,41 @@ st.set_page_config(
     page_icon="🏥",
     layout="wide"
 )
-
+st.markdown(
+    """
+    <style>
+    /* captions under charts and results */
+    [data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] p {
+        font-size: 1.1rem !important;
+    }
+    /* normal text, bullet lists, and warning/success boxes */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li {
+        font-size: 1.15rem;
+    }
+    /* form field labels and metric labels */
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stMetricLabel"] p {
+        font-size: 1.1rem;
+    }
+    /* keep buttons and tab titles at their original size */
+    .stButton button p,
+    [data-baseweb="tab"] p {
+        font-size: 1rem !important;
+    }
+        /* big risk score number */
+    [data-testid="stMetricValue"],
+    [data-testid="stMetricValue"] > div,
+    [data-testid="stMetricValue"] div {
+        font-size: 1.5rem !important;
+        font-weight: 700 !important;
+        line-height: 1.2 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 @st.cache_resource
 def load_artifacts():
@@ -28,6 +62,16 @@ def load_artifacts():
 
 
 model, scaler, means, feature_names = load_artifacts()
+@st.cache_resource
+def load_cox():
+    try:
+        return joblib.load(Path(__file__).resolve().parent / "cox_model.pkl")
+    except Exception:
+        return None
+
+
+cox_model = load_cox()
+COX_ON_SCALED = False  # set True if the Kaggle check showed means near 0
 
 # ---------- Form defaults and examples ----------
 DEFAULTS = {
@@ -156,6 +200,7 @@ with tab_predict:
             'Lymph nodes examined positive', 'Mutation Count',
             'Nottingham prognostic index', 'Tumor Size'
         ]
+        raw_input = input_data.copy()
         scaler_features = list(scaler.feature_names_in_)
         missing_scale_cols = [name for name in scale_cols if name not in scaler_features]
         if missing_scale_cols:
@@ -180,9 +225,12 @@ with tab_predict:
 
         st.subheader("Prediction Result")
         col_a, col_b = st.columns(2)
-
         with col_a:
-            st.metric("Risk Score", f"{probability*100:.1f}%")
+            st.markdown(
+                f'<div style="font-size:1.1rem;opacity:0.8;">Risk Score</div>'
+                f'<div style="font-size:4rem;font-weight:700;line-height:1.1;">{probability*100:.1f}%</div>',
+                unsafe_allow_html=True,
+            )
 
         with col_b:
             if risk_label == "HIGH RISK":
@@ -214,9 +262,45 @@ with tab_predict:
             ),
             show=False,
         )
-        st.pyplot(fig, alt="SHAP waterfall explanation of the prediction")
+        left, _ = st.columns([3, 2])
+        with left:
+            st.pyplot(fig, alt="SHAP waterfall explanation of the prediction")
         plt.close()
+        st.subheader("Estimated time to recurrence")
+        if cox_model is None:
+            st.info("Survival model not available.")
+        else:
+            cox_row = (input_data if COX_ON_SCALED else raw_input)[feature_names]
+            surv = cox_model.predict_survival_function(cox_row)
+            times_pts = [60, 120]
+            s_at = cox_model.predict_survival_function(cox_row, times=times_pts).iloc[:, 0]
 
+            c1, c2 = st.columns(2)
+            c1.markdown(
+                f'<div style="font-size:1.1rem;opacity:0.8;">Recurrence-free at 5 years</div>'
+                f'<div style="font-size:3rem;font-weight:700;line-height:1.1;">{s_at.loc[60]*100:.0f}%</div>',
+                unsafe_allow_html=True,
+            )
+            c2.markdown(
+                f'<div style="font-size:1.1rem;opacity:0.8;">Recurrence-free at 10 years</div>'
+                f'<div style="font-size:3rem;font-weight:700;line-height:1.1;">{s_at.loc[120]*100:.0f}%</div>',
+                unsafe_allow_html=True,
+            )
+
+            fig2, ax2 = plt.subplots(figsize=(6, 3))
+            ax2.step(surv.index, surv.iloc[:, 0], where="post")
+            ax2.set_xlabel("Months since diagnosis")
+            ax2.set_ylabel("Probability of no recurrence")
+            ax2.set_ylim(0, 1.02)
+            ax2.grid(alpha=0.3)
+            left2, _ = st.columns([3, 2])
+            with left2:
+                st.pyplot(fig2)
+            plt.close()
+            st.caption(
+                "Cox model estimate (C-index 0.66). Curves for individual patients are "
+                "approximate and should be read as relative risk over time."
+            )
         st.markdown("---")
         st.warning("⚠️ Disclaimer: This is a research prototype and not a clinical decision making tool. Always consult a qualified medical professional.")
 
